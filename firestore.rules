@@ -1,0 +1,22 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function user() { return get(/databases/$(database)/documents/users/$(request.auth.uid)); }
+    function isTeacher(tenantId) { return signedIn() && user().data.role == 'teacher' && user().data.tenantId == tenantId; }
+    function isMember(tenantId, classId) { return signedIn() && exists(/databases/$(database)/documents/classMemberships/$(classId + '_' + request.auth.uid)) && get(/databases/$(database)/documents/classMemberships/$(classId + '_' + request.auth.uid)).data.tenantId == tenantId; }
+
+    match /tenants/{tenantId}/{document=**} {
+      allow read, write: if isTeacher(tenantId);
+    }
+    match /publishedPackets/{packetId} {
+      allow read: if resource.data.state == 'published' && isMember(resource.data.tenantId, resource.data.classId);
+      allow write: if isTeacher(request.resource.data.tenantId);
+    }
+    match /quizAttempts/{attemptId} {
+      allow create: if signedIn() && request.resource.data.studentId == request.auth.uid && isMember(request.resource.data.tenantId, request.resource.data.classId);
+      allow read: if signedIn() && (resource.data.studentId == request.auth.uid || isTeacher(resource.data.tenantId));
+      allow update: if false;
+    }
+  }
+}
